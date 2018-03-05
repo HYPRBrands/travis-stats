@@ -1,7 +1,7 @@
 var defaultConfig = {
-	travis_endpoint: 'travis-ci.org',
-	travis_api_endpoint: 'api.travis-ci.org',
-	travis_api_token: false,
+	travis_endpoint: 'travis-ci.com',
+	travis_api_endpoint: 'api.travis-ci.com',
+	travis_api_token: console.error('Missing api token'),
 }
 var config;
 
@@ -200,6 +200,9 @@ function retrieveJson(url, callback) {
 	var req = d3.json(url);
 	if (config.travis_api_token) {
 		req = req.header("Authorization", 'token ' + config.travis_api_token);
+		req = req.header("Travis-API-Version", 3)
+		req = req.header("Content-Type", 'application/json')
+		req = req.header('Accept', 'application/json')
 	}
 	req.get(callback);
 }
@@ -212,27 +215,23 @@ function retrieveJson(url, callback) {
  * @param {Function} cb - Called once for each API response.
  */
 function iterBuilds(repoName, maxRequests, cb) {
-	var buildsUrl = 'https://' + config.travis_api_endpoint + '/repos/' + repoName + '/builds?event_type=push';
+	var buildsUrl = 'https://' + config.travis_api_endpoint + '/repo/' + encodeURIComponent(repoName) + '/builds';
 
-	var i=0;
+	var nextPages=1000;
 
 	var oldestBuild = Infinity;
 
-	function handleResponse(rawBuilds) {
-		if (typeof rawBuilds.length === 'undefined') {
+	function handleResponse(resp) {
+		if (typeof resp.builds === 'undefined') {
 			alert('invalid repository: ' + repoName);
 			return;
 		}
+		
+		cb(resp.builds);
 
-		var curOldestBuild = Math.min.apply(null, rawBuilds.map(function(build) {
-			return parseInt(build.number, 10);
-		}));
-
-		cb(rawBuilds);
-
-		if (++i < maxRequests && curOldestBuild < oldestBuild) {
-			oldestBuild = curOldestBuild;
-			retrieveJson(buildsUrl + '&after_number=' + oldestBuild, handleResponse);
+		if (resp['@pagination'].is_last === false && nextPages > 0) {
+			nextPages--;			
+			retrieveJson('https://' + config.travis_api_endpoint + resp['@pagination'].next['@href'], handleResponse);
 		}
 	}
 
@@ -253,14 +252,14 @@ function updateChart() {
 
 	var reqCount = document.getElementById('requests').value;
 
-	var baseUrl = 'https://' + config.travis_endpoint + '/' + repoName + '/builds/';
+	var baseUrl = 'https://' + config.travis_endpoint + '/repo/' + repoName + '/builds/';
 
 	var builds = [];
 
 	var buildCounts = {};
 
 	function isValidBuild(build) {
-		return build.branch === branch && build.state === 'finished';
+		return build.branch.name === branch;
 	}
 
 	function filterBuilds(rawBuilds) {
